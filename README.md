@@ -86,7 +86,13 @@ The platform is designed as a decoupled, asynchronous microservices architecture
 ---
 
 ## Key Features
+## Platform Preview
 
+### 1. Live Inference & Explainable AI (XAI)
+![Live Inference](reports/figures/live_inference.png)
+
+### 2. Executive Business Analytics
+![Executive Analytics](reports/figures/analytics_dashboard.png)
 * **Microservices Decoupling:** Standalone **FastAPI** backend and **Streamlit** frontend with isolated dependencies and Docker containers.
 * **Hybrid Feature Fusion:** Combines unstructured textual representations with structured customer metadata (`Age`, `Department Name`, `Review Length`, `Word Count`) to boost prediction precision.
 * **Explainable AI (XAI):** Real-time token-level attribution scoring indicating the directional contribution of each word toward the predicted sentiment.
