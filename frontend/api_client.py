@@ -1,14 +1,21 @@
+import os
 import requests
+import streamlit as st
 from typing import Dict, Any, Optional, Tuple
 
 
 class FeedbackAPIClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
-        self.base_url = base_url
+    def __init__(self, base_url: Optional[str] = None):
+        if base_url:
+            self.base_url = base_url
+        elif hasattr(st, "secrets") and "BACKEND_URL" in st.secrets:
+            self.base_url = st.secrets["BACKEND_URL"]
+        else:
+            self.base_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
     def check_health(self) -> bool:
         try:
-            res = requests.get(f"{self.base_url}/health", timeout=3)
+            res = requests.get(f"{self.base_url}/health", timeout=5)
             return res.status_code == 200
         except requests.exceptions.RequestException:
             return False
@@ -27,7 +34,7 @@ class FeedbackAPIClient:
                     "age": age,
                     "department_name": department
                 },
-                timeout=10
+                timeout=15
             )
             if response.status_code == 200:
                 return response.json(), None
