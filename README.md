@@ -294,7 +294,7 @@ Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/?
 
 1. Clone repository:
 ```bash
-git clone [https://github.com/your-username/Customer-Feedback-Intelligence.git](https://github.com/your-username/Customer-Feedback-Intelligence.git)
+git clone [https://github.com/HMsons87/Customer-Feedback-Intelligence.git](https://github.com/HMsons87/Customer-Feedback-Intelligence.git)
 cd Customer-Feedback-Intelligence
 
 ```
