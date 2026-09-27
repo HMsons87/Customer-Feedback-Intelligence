@@ -8,47 +8,41 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
 
+NGROK_HEADERS = {
+    "ngrok-skip-browser-warning": "true",
+    "User-Agent": "FeedbackIQ-StreamlitClient"
+}
+
 
 class FeedbackAPIClient:
     def __init__(self, base_url: Optional[str] = None):
         if base_url:
-            self.base_url = base_url
+            self.base_url = base_url.rstrip("/")
         else:
             backend_url = None
             try:
                 import streamlit as st
-                if hasattr(st, "secrets"):
-                    backend_url = st.secrets.get("BACKEND_URL", None)
+                if hasattr(st, "secrets") and "BACKEND_URL" in st.secrets:
+                    backend_url = st.secrets["BACKEND_URL"]
             except BaseException:
                 backend_url = None
 
-            self.base_url = backend_url or os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+            chosen_url = backend_url or os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+            self.base_url = chosen_url.rstrip("/")
 
         self._local_service = None
-        self.load_error = None
-
-    def _get_local_service(self):
-        if self._local_service is None and self.load_error is None:
-            try:
-                from backend.services.model_service import model_service
-                self._local_service = model_service
-            except Exception as e:
-                self.load_error = str(e)
-                print(f"[APIClient] Failed to load local model service: {e}")
-        return self._local_service
 
     def check_health(self) -> bool:
         try:
-            res = requests.get(f"{self.base_url}/health", timeout=2)
-            if res.status_code == 200:
+            res = requests.get(
+                f"{self.base_url}/health",
+                headers=NGROK_HEADERS,
+                timeout=5
+            )
+            if res.status_code == 200 and "application/json" in res.headers.get("content-type", ""):
                 return True
         except Exception:
             pass
-
-        local_svc = self._get_local_service()
-        if local_svc and getattr(local_svc, "is_ready", False):
-            return True
-
         return False
 
     def analyze_feedback(
@@ -57,6 +51,7 @@ class FeedbackAPIClient:
             age: int = 35,
             department: str = "Dresses"
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """إرسال المراجعة إلى FastAPI واستلام توقع الموديل والـ XAI"""
         try:
             response = requests.post(
                 f"{self.base_url}/api/v1/analyze",
@@ -65,24 +60,26 @@ class FeedbackAPIClient:
                     "age": age,
                     "department_name": department
                 },
-                timeout=5
+                headers=NGROK_HEADERS,
+                timeout=20
             )
+
+            # إذا استجاب السيرفر بنجاح
             if response.status_code == 200:
-                return response.json(), None
-        except Exception:
-            pass
+                try:
+                    return response.json(), None
+                except Exception:
+                    return None, f"Server returned non-JSON response: {response.text[:150]}"
 
-        local_svc = self._get_local_service()
-        if local_svc and getattr(local_svc, "is_ready", False):
+            # في حال وجود خطأ في كود الـ Backend
             try:
-                res = local_svc.analyze_feedback(
-                    raw_text=text,
-                    age=age,
-                    department=department
-                )
-                return res, None
-            except Exception as e:
-                return None, f"Model Inference Error: {str(e)}"
+                error_detail = response.json().get("detail", f"HTTP {response.status_code}")
+            except Exception:
+                error_detail = response.text[:200] or f"HTTP {response.status_code}"
 
-        reason = self.load_error or "Model files not loaded. Please verify repository /models path."
-        return None, f"Engine Failure: {reason}"
+            return None, f"Backend Error: {error_detail}"
+
+        except requests.exceptions.Timeout:
+            return None, "Request Timed Out: Ngrok tunnel took too long to respond."
+        except requests.exceptions.RequestException as e:
+            return None, f"Tunnel Connection Failed: {str(e)}"

@@ -1,87 +1,160 @@
-import os
-import sys
 from pathlib import Path
-import requests
-from typing import Dict, Any, Optional, Tuple
+from api_client import FeedbackAPIClient
+from components import (
+    render_complaint_cluster,
+    render_eda_section,
+    render_explainability_card,
+    render_hero_section,
+    render_kpi_summary,
+    render_sentiment_card,
+    render_site_footer,
+    render_top_navbar,
+)
+import streamlit as st
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.append(str(BASE_DIR))
+logo_icon_path = Path(__file__).parent / "assets" / "logo.png"
+fav_icon = str(logo_icon_path) if logo_icon_path.exists() else None
 
-# الهيدر الخاص بتخطي صفحة حماية ngrok المجانية
-NGROK_HEADERS = {
-    "ngrok-skip-browser-warning": "true",
-    "User-Agent": "FeedbackIQ-StreamlitClient"
-}
+st.set_page_config(
+    page_title="FeedbackIQ • Customer Feedback Intelligence",
+    page_icon=fav_icon,
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
+css_path = Path(__file__).parent / "styles.css"
+if css_path.exists():
+  with open(css_path, "r", encoding="utf-8") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-class FeedbackAPIClient:
-    def __init__(self, base_url: Optional[str] = None):
-        if base_url:
-            self.base_url = base_url.rstrip("/")
+client = FeedbackAPIClient()
+is_online = client.check_health()
+
+render_top_navbar(is_online)
+
+render_hero_section()
+
+render_kpi_summary()
+
+tab1, tab2 = st.tabs(
+    ["Live Customer Feedback Inspector", "Executive Dataset Analytics"]
+)
+
+with tab1:
+  st.markdown(
+      """
+        <div style="margin: 15px 0 10px 0;">
+            <h3 style="color: #ffffff; font-size: 1.3rem; font-weight: 700; margin-bottom: 4px;">Live Inference Playground</h3>
+            <p style="color: #64748b; font-size: 0.9rem; margin: 0;">Analyze customer satisfaction, detect negative risk signals, and extract root-cause complaint clusters.</p>
+        </div>
+    """,
+      unsafe_allow_html=True,
+  )
+
+  st.markdown(
+      "<span style='color: #64748b; font-size: 0.8rem; font-weight: 600;'>Load"
+      " Customer Review Template:</span>",
+      unsafe_allow_html=True,
+  )
+  preset_cols = st.columns([1, 1, 1])
+  preset_text = (
+      "I loved the fabric and color, but it was way too small around the waist"
+      " and tore easily."
+  )
+
+  # أزرار القوالب بعد إزالة الـ Emojis
+  if preset_cols[0].button("Defect: Sizing & Quality", use_container_width=True):
+    preset_text = (
+        "The skirt was outrageously small in the waist and the zipper broke"
+        " after first wear."
+    )
+  if preset_cols[1].button("Positive: Brand Advocate", use_container_width=True):
+    preset_text = (
+        "Absolutely gorgeous dress! Soft fabric, fits true to size, and received"
+        " tons of compliments."
+    )
+  if preset_cols[2].button(
+      "Issue: Logistics & Return", use_container_width=True
+  ):
+    preset_text = (
+        "Waited 3 weeks for delivery. Arrived damaged and customer service"
+        " refused to process exchange."
+    )
+
+  meta_col1, meta_col2 = st.columns(2)
+  with meta_col1:
+    selected_dept = st.selectbox(
+        "Garment Department:",
+        ["Dresses", "Tops", "Bottoms", "Intimate", "Jackets", "Trend"],
+    )
+  with meta_col2:
+    customer_age = st.slider(
+        "Customer Age:", min_value=18, max_value=85, value=35
+    )
+
+  user_input = st.text_area(
+      label="Customer Review Text",
+      value=preset_text,
+      height=110,
+      placeholder="Type or paste customer feedback here...",
+      label_visibility="collapsed",
+  )
+
+  col_btn, _ = st.columns([1, 3])
+  with col_btn:
+    analyze_clicked = st.button(
+        "Run AI Diagnostics", type="primary", use_container_width=True
+    )
+
+  if analyze_clicked:
+    if not user_input.strip():
+      st.warning("Please enter a customer review.")
+    else:
+      with st.spinner("Executing NLP Pipeline & Model Vectorization..."):
+        res, err = client.analyze_feedback(
+            text=user_input, age=customer_age, department=selected_dept
+        )
+
+        if res:
+          st.markdown(
+              "<div style='height: 15px;'></div>", unsafe_allow_html=True
+          )
+          col1, col2 = st.columns([1, 1], gap="medium")
+          with col1:
+            render_sentiment_card(res)
+            if res.get("key_drivers"):
+              render_explainability_card(res["key_drivers"])
+          with col2:
+            if res.get("is_complaint") and res.get("complaint_cluster"):
+              render_complaint_cluster(res["complaint_cluster"])
+            else:
+              st.markdown(
+                  """
+                        <div class="dashboard-card" style="border-left: 4px solid #4ade80;">
+                            <div style="color: #4ade80; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; margin-bottom: 6px;">
+                                Brand Satisfaction Confirmed
+                            </div>
+                            <h4 style="color: #ffffff; font-weight: 700; margin-bottom: 10px;">Positive / Neutral Sentiment</h4>
+                            <p style="color: #94a3b8; font-size: 0.88rem; line-height: 1.5; margin: 0;">
+                                No structural complaint patterns or quality defects detected. Review represents satisfied consumer advocacy.
+                            </p>
+                        </div>
+                    """,
+                  unsafe_allow_html=True,
+              )
         else:
-            backend_url = None
-            try:
-                import streamlit as st
-                if hasattr(st, "secrets") and "BACKEND_URL" in st.secrets:
-                    backend_url = st.secrets["BACKEND_URL"]
-            except BaseException:
-                backend_url = None
+          st.error(f"Inference Service Failed: {err}")
 
-            chosen_url = backend_url or os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
-            self.base_url = chosen_url.rstrip("/")
+with tab2:
+  st.markdown(
+      """
+        <div style="margin: 15px 0 10px 0;">
+            <h3 style="color: #ffffff; font-size: 1.3rem; font-weight: 700; margin-bottom: 4px;">Executive Performance Dashboard</h3>
+            <p style="color: #64748b; font-size: 0.9rem; margin: 0;">Aggregated voice-of-customer trends across departments and product categories.</p>
+        </div>
+    """,
+      unsafe_allow_html=True,
+  )
+  render_eda_section()
 
-        self._local_service = None
-
-    def check_health(self) -> bool:
-        """فحص حالة اتصال سيرفر الـ API"""
-        try:
-            res = requests.get(
-                f"{self.base_url}/health",
-                headers=NGROK_HEADERS,
-                timeout=5
-            )
-            if res.status_code == 200 and "application/json" in res.headers.get("content-type", ""):
-                return True
-        except Exception:
-            pass
-        return False
-
-    def analyze_feedback(
-            self,
-            text: str,
-            age: int = 35,
-            department: str = "Dresses"
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """إرسال المراجعة إلى FastAPI واستلام توقع الموديل والـ XAI"""
-        try:
-            response = requests.post(
-                f"{self.base_url}/api/v1/analyze",
-                json={
-                    "review_text": text,
-                    "age": age,
-                    "department_name": department
-                },
-                headers=NGROK_HEADERS,
-                timeout=20
-            )
-
-            # إذا استجاب السيرفر بنجاح
-            if response.status_code == 200:
-                try:
-                    return response.json(), None
-                except Exception:
-                    return None, f"Server returned non-JSON response: {response.text[:150]}"
-
-            # في حال وجود خطأ في كود الـ Backend
-            try:
-                error_detail = response.json().get("detail", f"HTTP {response.status_code}")
-            except Exception:
-                error_detail = response.text[:200] or f"HTTP {response.status_code}"
-
-            return None, f"Backend Error: {error_detail}"
-
-        except requests.exceptions.Timeout:
-            return None, "Request Timed Out: Ngrok tunnel took too long to respond."
-        except requests.exceptions.RequestException as e:
-            return None, f"Tunnel Connection Failed: {str(e)}"
+render_site_footer()
