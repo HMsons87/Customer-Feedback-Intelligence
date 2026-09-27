@@ -25,14 +25,16 @@ class FeedbackAPIClient:
             self.base_url = backend_url or os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
         self._local_service = None
+        self.load_error = None
 
     def _get_local_service(self):
-        if self._local_service is None:
+        if self._local_service is None and self.load_error is None:
             try:
                 from backend.services.model_service import model_service
                 self._local_service = model_service
             except Exception as e:
-                print(f"Local service import error: {e}")
+                self.load_error = str(e)
+                print(f"[APIClient] Failed to load local model service: {e}")
         return self._local_service
 
     def check_health(self) -> bool:
@@ -44,8 +46,7 @@ class FeedbackAPIClient:
             pass
 
         local_svc = self._get_local_service()
-        if local_svc and (
-                getattr(local_svc, "pipeline", None) is not None or getattr(local_svc, "classifier", None) is not None):
+        if local_svc and getattr(local_svc, "is_ready", False):
             return True
 
         return False
@@ -72,7 +73,7 @@ class FeedbackAPIClient:
             pass
 
         local_svc = self._get_local_service()
-        if local_svc:
+        if local_svc and getattr(local_svc, "is_ready", False):
             try:
                 res = local_svc.analyze_feedback(
                     raw_text=text,
@@ -81,6 +82,7 @@ class FeedbackAPIClient:
                 )
                 return res, None
             except Exception as e:
-                return None, f"Engine Error: {str(e)}"
+                return None, f"Model Inference Error: {str(e)}"
 
-        return None, "Inference Engine Unavailable. Ensure backend is running or models are loaded."
+        reason = self.load_error or "Model files not loaded. Please verify repository /models path."
+        return None, f"Engine Failure: {reason}"
